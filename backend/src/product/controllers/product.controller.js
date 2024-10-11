@@ -31,6 +31,28 @@ export const addNewProduct = async (req, res, next) => {
 
 export const getAllProducts = async (req, res, next) => {
   // Implement the functionality for search, filter and pagination this function.
+  try {
+    const {
+      keyword,
+      category,
+      price,
+      rating,
+      page = 1,
+      limit = 10,
+      sort = "createdAt",
+    } = req.query;
+
+    const filters = { keyword, category, price, rating };
+
+    const productsData = await getAllProductsRepo(filters, page, limit, sort);
+
+    res.status(200).json({
+      success: true,
+      ...productsData,
+    });
+  } catch (error) {
+    return next(new ErrorHandler(500, error.message));
+  }
 };
 
 export const updateProduct = async (req, res, next) => {
@@ -129,6 +151,7 @@ export const getAllReviewsOfAProduct = async (req, res, next) => {
 export const deleteReview = async (req, res, next) => {
   // Insert the essential code into this controller wherever necessary to resolve issues related to removing reviews and updating product ratings.
   try {
+    const userId = req.user._id;
     const { productId, reviewId } = req.query;
     if (!productId || !reviewId) {
       return next(
@@ -152,7 +175,28 @@ export const deleteReview = async (req, res, next) => {
     }
 
     const reviewToBeDeleted = reviews[isReviewExistIndex];
+
+    // Check if the logged-in user is the owner of the review
+    if (reviewToBeDeleted.user.toString() !== userId.toString()) {
+      return next(
+        new ErrorHandler(403, "You are not authorized to delete this review")
+      );
+    }
+
     reviews.splice(isReviewExistIndex, 1);
+
+    // Update the product's rating
+    if (product.reviews.length > 0) {
+      // Calculate the new average rating
+      const totalRating = product.reviews.reduce(
+        (acc, rev) => acc + rev.rating,
+        0
+      );
+      product.rating = totalRating / product.reviews.length;
+    } else {
+      // If no reviews are left, set rating to 0
+      product.rating = 0;
+    }
 
     await product.save({ validateBeforeSave: false });
     res.status(200).json({

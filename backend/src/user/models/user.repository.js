@@ -36,4 +36,8 @@ export const deleteUserRepo = async (_id) => {
 
 export const updateUserRoleAndProfileRepo = async (_id, data) => {
   // Write your code here for updating the roles of other users by admin
+  return await updateUserProfileRepo(
+    { _id: new mongoose.Types.ObjectId(_id) },
+    data
+  );
 };

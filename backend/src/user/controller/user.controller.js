@@ -14,7 +14,6 @@ import {
   updateUserProfileRepo,
   updateUserRoleAndProfileRepo,
 } from "../models/user.repository.js";
-import crypto from "crypto";
 
 export const createNewUser = async (req, res, next) => {
   const { name, email, password } = req.body;
@@ -26,6 +25,9 @@ export const createNewUser = async (req, res, next) => {
     await sendWelcomeEmail(newUser);
   } catch (err) {
     //  handle error for duplicate email
+    if (err.name === "MongoServerError" && err.code === 11000) {
+      return next(new ErrorHandler(400, "email already registered"));
+    }
     return next(new ErrorHandler(400, err));
   }
 };
@@ -64,10 +66,72 @@ export const logoutUser = async (req, res, next) => {
 
 export const forgetPassword = async (req, res, next) => {
   // Implement feature for forget password
+  try {
+    const { email } = req.body;
+    console.log(email);
+    if (!email) {
+      return next(new ErrorHandler(400, "please enter email"));
+    }
+    const user = await findUserRepo({ email }, false);
+
+    if (!user) {
+      return next(new ErrorHandler(404, "user not found"));
+    }
+    if (
+      user["resetPasswordExpire"] &&
+      user["resetPasswordToken"] &&
+      user["resetPasswordExpire"] > Date.now()
+    ) {
+      return next(
+        new ErrorHandler(400, "Token already exists. please check your email")
+      );
+    }
+
+    await user.getResetPasswordToken();
+    await user.save();
+
+    await sendPasswordResetEmail(user, user.resetPasswordToken);
+    res.status(200).json({
+      success: true,
+      msg: `The reset password token has been sent to '${email}' successfully`,
+    });
+  } catch (error) {
+    return next(new ErrorHandler(500, error));
+  }
 };
 
 export const resetUserPassword = async (req, res, next) => {
   // Implement feature for reset password
+  try {
+    const token = req.params.token;
+    const { password, confirmPassword } = req.body;
+    if (!token) {
+      return next(new ErrorHandler(404, "token not found"));
+    }
+
+    if (password !== confirmPassword) {
+      return next(
+        new ErrorHandler(400, "Password and confirm password mismatch")
+      );
+    }
+    const user = await findUserForPasswordResetRepo(token);
+    if (!user) {
+      return next(new ErrorHandler(400, "Invalid token or Expired Token"));
+    }
+    user.password = password;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpire = null;
+    await user.save();
+    res
+      .status(200)
+      .cookie("token", null, {
+        expires: new Date(Date.now()),
+        httpOnly: true,
+      })
+      .json({ success: true, msg: "Password has been changed successfully" });
+  } catch (error) {
+    return next(new ErrorHandler(500, error));
+  }
 };
 
 export const getUserDetails = async (req, res, next) => {
@@ -162,4 +226,24 @@ export const deleteUser = async (req, res, next) => {
 
 export const updateUserProfileAndRole = async (req, res, next) => {
   // Write your code here for updating the roles of other users by admin
+
+  try {
+    const userId = req.params.id;
+    const { name, email, role } = req.body;
+    const updatedUser = await updateUserRoleAndProfileRepo(userId, {
+      name,
+      email,
+      role,
+    });
+    if (!updatedUser) {
+      return res
+        .status(400)
+        .json({ success: false, msg: "no user found with provided id" });
+    }
+    res
+      .status(200)
+      .json({ success: true, msg: "user updated successfully", updatedUser });
+  } catch (error) {
+    return next(new ErrorHandler(400, error));
+  }
 };

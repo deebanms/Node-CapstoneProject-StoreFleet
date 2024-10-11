@@ -15,7 +15,7 @@ export const auth = async (req, res, next) => {
 export const authByUserRole = (...roles) => {
   // fix this middleware for admin access only
   return async (req, res, next) => {
-    if (roles.includes(req.user.role !== "admin")) {
+    if (!roles.includes(req.user.role)) {
       return next(
         new ErrorHandler(
           403,
